@@ -38,7 +38,10 @@ function createPeer(id) {
       }
     });
     p.on("open", () => resolve(p));
-    p.on("error", reject);
+    p.on("error", (err) => {
+      console.error(err);
+      reject(err);
+    });
   });
 }
 
@@ -128,23 +131,31 @@ function setupConn(c) {
 }
 
 $("btnCreate").onclick = async () => {
+  let code = $("customCode").value.trim().toUpperCase();
+  // якщо порожньо — генеруємо випадковий
+  if (!code) {
+    code = Math.random().toString(36).slice(2, 8).toUpperCase();
+  }
+  // тільки букви/цифри
+  code = code.replace(/[^A-Z0-9]/g, "").slice(0, 12);
+  if (!code) return toast("Некоректний код");
+
   show("room");
   isHost = true;
+  currentRoom = code;
+  mySenderId = "host-" + code;
   $("status").textContent = "Створення кімнати…";
   $("chatArea").classList.add("hidden");
   $("qrWrap").classList.remove("hidden");
   $("roomHint").classList.remove("hidden");
   $("messages").innerHTML = "";
+  $("roomCode").textContent = code;
 
   try {
-    const id = Math.random().toString(36).slice(2, 8).toUpperCase();
-    peer = await createPeer(id);
-    currentRoom = peer.id;
-    mySenderId = "host-" + peer.id;
-    $("roomCode").textContent = peer.id;
+    peer = await createPeer(code);
     $("status").textContent = "Очікуємо підключення…";
 
-    QRCode.toCanvas($("qrCanvas"), peer.id, {
+    QRCode.toCanvas($("qrCanvas"), code, {
       width: 180,
       margin: 1,
       color: { dark: "#000", light: "#fff" }
@@ -152,7 +163,9 @@ $("btnCreate").onclick = async () => {
 
     peer.on("connection", (c) => setupConn(c));
   } catch (e) {
-    $("status").textContent = "Помилка: " + e.message;
+    // якщо ID зайнятий (хтось вже створив з таким кодом)
+    $("status").textContent = "Помилка: код зайнятий або мережа. Спробуй інший код.";
+    toast("Код зайнятий — введи інший");
   }
 };
 
@@ -162,6 +175,7 @@ $("joinCode").onkeydown = (e) => {
 };
 
 async function join(code) {
+  code = (code || "").replace(/[^A-Z0-9]/g, "").slice(0, 12);
   if (!code) return toast("Введіть код");
 
   show("room");
@@ -227,7 +241,7 @@ function scanLoop() {
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const code = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
     if (code && code.data) {
-      const val = code.data.trim().toUpperCase();
+      const val = code.data.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
       if (val.length >= 4) {
         stopScan();
         join(val);
@@ -256,7 +270,6 @@ async function sendText() {
   $("textInput").value = "";
   $("textInput").focus();
 
-  // Зберігаємо в Supabase
   if (currentRoom) {
     await saveMessage(currentRoom, text, mySenderId);
   }

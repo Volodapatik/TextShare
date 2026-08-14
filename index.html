@@ -16,8 +16,14 @@
 
   <!-- HOME -->
   <section id="home" class="screen active">
-    <button id="btnCreate" class="btn primary big">Створити кімнату</button>
+    <div class="card home-card">
+      <label class="field-label">Код кімнати (або залиш порожнім)</label>
+      <input id="customCode" type="text" placeholder="Наприклад TEST01" maxlength="12" autocomplete="off">
+      <button id="btnCreate" class="btn primary big" style="margin-top:12px">Створити кімнату</button>
+    </div>
+
     <div class="or">або</div>
+
     <div class="join-box">
       <input id="joinCode" type="text" placeholder="Код кімнати" maxlength="12" autocomplete="off">
       <button id="btnJoin" class="btn secondary">Приєднатися</button>
