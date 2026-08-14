@@ -5,6 +5,8 @@ const $ = (id) => document.getElementById(id);
 let peer = null;
 let conn = null;
 let isHost = false;
+let scanStream = null;
+let scanRAF = null;
 
 function show(screen) {
   document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
@@ -116,11 +118,12 @@ $("btnCreate").onclick = async () => {
   }
 };
 
-$("btnJoin").onclick = join;
-$("joinCode").onkeydown = (e) => { if (e.key === "Enter") join(); };
+$("btnJoin").onclick = () => join($("joinCode").value.trim().toUpperCase());
+$("joinCode").onkeydown = (e) => {
+  if (e.key === "Enter") join($("joinCode").value.trim().toUpperCase());
+};
 
-async function join() {
-  const code = $("joinCode").value.trim().toUpperCase();
+async function join(code) {
   if (!code) return toast("Введіть код");
 
   show("room");
@@ -139,6 +142,60 @@ async function join() {
   } catch (e) {
     $("status").textContent = "Помилка: " + e.message;
   }
+}
+
+// ---------- QR SCANNER ----------
+$("btnScanQR").onclick = startScan;
+$("btnStopScan").onclick = stopScan;
+
+async function startScan() {
+  show("scanner");
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+      audio: false
+    });
+    const video = $("scanVideo");
+    video.srcObject = scanStream;
+    await video.play();
+    scanRAF = requestAnimationFrame(scanLoop);
+  } catch (e) {
+    toast("Немає доступу до камери: " + e.message);
+    show("home");
+  }
+}
+
+function stopScan() {
+  if (scanRAF) cancelAnimationFrame(scanRAF);
+  scanRAF = null;
+  if (scanStream) {
+    scanStream.getTracks().forEach((t) => t.stop());
+    scanStream = null;
+  }
+  show("home");
+}
+
+function scanLoop() {
+  if (!scanStream) return;
+  const video = $("scanVideo");
+  const canvas = $("scanCanvas");
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0);
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
+    if (code && code.data) {
+      const val = code.data.trim().toUpperCase();
+      if (val.length >= 4) {
+        stopScan();
+        join(val);
+        return;
+      }
+    }
+  }
+  scanRAF = requestAnimationFrame(scanLoop);
 }
 
 $("btnSend").onclick = sendText;
@@ -161,6 +218,7 @@ function sendText() {
 }
 
 $("btnBack").onclick = () => {
+  stopScan();
   if (conn) try { conn.close(); } catch (_) {}
   if (peer) try { peer.destroy(); } catch (_) {}
   conn = null;

@@ -22,7 +22,19 @@
       <input id="joinCode" type="text" placeholder="Код кімнати" maxlength="12" autocomplete="off">
       <button id="btnJoin" class="btn secondary">Приєднатися</button>
     </div>
+    <button id="btnScanQR" class="btn ghost" style="margin-top:12px">📷 Сканувати QR</button>
     <p class="hint">Працює на телефоні, ноуті, планшеті — без додатків</p>
+  </section>
+
+  <!-- SCANNER -->
+  <section id="scanner" class="screen">
+    <div class="card">
+      <div class="status">Наведіть камеру на QR</div>
+      <div class="video-wrap">
+        <video id="scanVideo" playsinline muted autoplay></video>
+      </div>
+      <button id="btnStopScan" class="btn secondary">Скасувати</button>
+    </div>
   </section>
 
   <!-- ROOM -->
@@ -33,7 +45,7 @@
       <div class="qr-wrap" id="qrWrap">
         <canvas id="qrCanvas" width="200" height="200"></canvas>
       </div>
-      <p class="hint" id="roomHint">Нехай інший пристрій введе цей код</p>
+      <p class="hint" id="roomHint">Нехай інший пристрій введе цей код або відсканує QR</p>
 
       <div id="chatArea" class="hidden">
         <div id="messages" class="messages"></div>
@@ -49,9 +61,11 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
+<canvas id="scanCanvas" hidden></canvas>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
