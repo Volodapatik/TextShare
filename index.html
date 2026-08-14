@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TextShare — швидкий текст між пристроями</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <h1>TextShare</h1>
+    <p class="subtitle">Кинь текст на інший пристрій за секунду</p>
+  </header>
+
+  <!-- HOME -->
+  <section id="home" class="screen active">
+    <button id="btnCreate" class="btn primary big">Створити кімнату</button>
+    <div class="or">або</div>
+    <div class="join-box">
+      <input id="joinCode" type="text" placeholder="Код кімнати" maxlength="12" autocomplete="off">
+      <button id="btnJoin" class="btn secondary">Приєднатися</button>
+    </div>
+    <p class="hint">Працює на телефоні, ноуті, планшеті — без додатків</p>
+  </section>
+
+  <!-- ROOM -->
+  <section id="room" class="screen">
+    <div class="card">
+      <div class="status" id="status">Підключення…</div>
+      <div class="code-box" id="roomCode">—</div>
+      <div class="qr-wrap" id="qrWrap">
+        <canvas id="qrCanvas" width="200" height="200"></canvas>
+      </div>
+      <p class="hint" id="roomHint">Нехай інший пристрій введе цей код</p>
+
+      <div id="chatArea" class="hidden">
+        <div id="messages" class="messages"></div>
+
+        <div class="send-row">
+          <textarea id="textInput" placeholder="Встав текст або напиши…" rows="3"></textarea>
+          <button id="btnSend" class="btn primary">Надіслати</button>
+        </div>
+      </div>
+    </div>
+    <button id="btnBack" class="btn ghost">← Назад</button>
+  </section>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
