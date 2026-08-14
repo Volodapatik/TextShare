@@ -2,9 +2,15 @@
 
 const $ = (id) => document.getElementById(id);
 
+const SUPABASE_URL = "https://kbxjvegqehfcnecjsfip.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtieGp2ZWdxZWhmY25lY2pzZmlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3MDMyMjcsImV4cCI6MjEwMjI3OTIyN30.2J5z10ZC0QXFw-C-53L7tvtpZl7YCxwW8ifjMW7msH8";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
 let peer = null;
 let conn = null;
 let isHost = false;
+let currentRoom = null;
+let mySenderId = null;
 let scanStream = null;
 let scanRAF = null;
 
@@ -36,7 +42,7 @@ function createPeer(id) {
   });
 }
 
-function addMessage(text, mine) {
+function addMessage(text, mine, fromHistory = false) {
   const box = $("messages");
   const div = document.createElement("div");
   div.className = "msg " + (mine ? "mine" : "theirs");
@@ -64,17 +70,47 @@ function addMessage(text, mine) {
   div.appendChild(btn);
 
   box.appendChild(div);
-  box.scrollTop = box.scrollHeight;
+  if (!fromHistory) box.scrollTop = box.scrollHeight;
+}
+
+async function loadHistory(roomId) {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("text, sender, created_at")
+    .eq("room_id", roomId)
+    .order("created_at", { ascending: true })
+    .limit(200);
+
+  if (error) {
+    console.error(error);
+    return;
+  }
+
+  $("messages").innerHTML = "";
+  (data || []).forEach((m) => {
+    addMessage(m.text, m.sender === mySenderId, true);
+  });
+  $("messages").scrollTop = $("messages").scrollHeight;
+}
+
+async function saveMessage(roomId, text, sender) {
+  const { error } = await supabase.from("messages").insert({
+    room_id: roomId,
+    text,
+    sender
+  });
+  if (error) console.error("save error", error);
 }
 
 function setupConn(c) {
   conn = c;
-  c.on("open", () => {
+  c.on("open", async () => {
     $("status").textContent = "Підключено ✅";
     $("qrWrap").classList.add("hidden");
     $("roomHint").classList.add("hidden");
     $("chatArea").classList.remove("hidden");
     toast("З’єднано");
+    await loadHistory(currentRoom);
   });
 
   c.on("data", (data) => {
@@ -103,6 +139,8 @@ $("btnCreate").onclick = async () => {
   try {
     const id = Math.random().toString(36).slice(2, 8).toUpperCase();
     peer = await createPeer(id);
+    currentRoom = peer.id;
+    mySenderId = "host-" + peer.id;
     $("roomCode").textContent = peer.id;
     $("status").textContent = "Очікуємо підключення…";
 
@@ -128,6 +166,8 @@ async function join(code) {
 
   show("room");
   isHost = false;
+  currentRoom = code;
+  mySenderId = "guest-" + Math.random().toString(36).slice(2, 8);
   $("status").textContent = "Підключення…";
   $("roomCode").textContent = code;
   $("qrWrap").classList.add("hidden");
@@ -206,7 +246,7 @@ $("textInput").onkeydown = (e) => {
   }
 };
 
-function sendText() {
+async function sendText() {
   const text = $("textInput").value;
   if (!text.trim()) return;
   if (!conn || !conn.open) return toast("Немає з’єднання");
@@ -215,6 +255,11 @@ function sendText() {
   addMessage(text, true);
   $("textInput").value = "";
   $("textInput").focus();
+
+  // Зберігаємо в Supabase
+  if (currentRoom) {
+    await saveMessage(currentRoom, text, mySenderId);
+  }
 }
 
 $("btnBack").onclick = () => {
@@ -223,6 +268,7 @@ $("btnBack").onclick = () => {
   if (peer) try { peer.destroy(); } catch (_) {}
   conn = null;
   peer = null;
+  currentRoom = null;
   show("home");
 };
 
