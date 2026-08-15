@@ -4,7 +4,15 @@ const $ = (id) => document.getElementById(id);
 
 const SUPABASE_URL = "https://kbxjvegqehfcnecjsfip.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtieGp2ZWdxZWhmY25lY2pzZmlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3MDMyMjcsImV4cCI6MjEwMjI3OTIyN30.2J5z10ZC0QXFw-C-53L7tvtpZl7YCxwW8ifjMW7msH8";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+let supabase = null;
+try {
+  if (window.supabase) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+  }
+} catch (e) {
+  console.warn("Supabase init failed", e);
+}
 
 let peer = null;
 let conn = null;
@@ -19,7 +27,7 @@ function show(screen) {
   $(screen).classList.add("active");
 }
 
-function toast(msg, ms = 2500) {
+function toast(msg, ms = 3000) {
   const t = $("toast");
   t.textContent = msg;
   t.classList.remove("hidden");
@@ -28,18 +36,28 @@ function toast(msg, ms = 2500) {
 
 function createPeer(id) {
   return new Promise((resolve, reject) => {
-    const p = new Peer(id, {
-      debug: 0,
+    const opts = {
+      debug: 1,
       config: {
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" }
         ]
       }
+    };
+    const p = id ? new Peer(id, opts) : new Peer(opts);
+
+    const timer = setTimeout(() => {
+      try { p.destroy(); } catch (_) {}
+      reject(new Error("Таймаут підключення до сервера PeerJS"));
+    }, 15000);
+
+    p.on("open", (pid) => {
+      clearTimeout(timer);
+      resolve(p);
     });
-    p.on("open", () => resolve(p));
     p.on("error", (err) => {
-      console.error(err);
+      clearTimeout(timer);
       reject(err);
     });
   });
@@ -77,32 +95,42 @@ function addMessage(text, mine, fromHistory = false) {
 }
 
 async function loadHistory(roomId) {
-  const { data, error } = await supabase
-    .from("messages")
-    .select("text, sender, created_at")
-    .eq("room_id", roomId)
-    .order("created_at", { ascending: true })
-    .limit(200);
+  if (!supabase) return;
+  try {
+    const { data, error } = await supabase
+      .from("messages")
+      .select("text, sender, created_at")
+      .eq("room_id", roomId)
+      .order("created_at", { ascending: true })
+      .limit(200);
 
-  if (error) {
-    console.error(error);
-    return;
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    $("messages").innerHTML = "";
+    (data || []).forEach((m) => {
+      addMessage(m.text, m.sender === mySenderId, true);
+    });
+    $("messages").scrollTop = $("messages").scrollHeight;
+  } catch (e) {
+    console.error(e);
   }
-
-  $("messages").innerHTML = "";
-  (data || []).forEach((m) => {
-    addMessage(m.text, m.sender === mySenderId, true);
-  });
-  $("messages").scrollTop = $("messages").scrollHeight;
 }
 
 async function saveMessage(roomId, text, sender) {
-  const { error } = await supabase.from("messages").insert({
-    room_id: roomId,
-    text,
-    sender
-  });
-  if (error) console.error("save error", error);
+  if (!supabase) return;
+  try {
+    const { error } = await supabase.from("messages").insert({
+      room_id: roomId,
+      text,
+      sender
+    });
+    if (error) console.error("save error", error);
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 function setupConn(c) {
@@ -131,14 +159,17 @@ function setupConn(c) {
 }
 
 $("btnCreate").onclick = async () => {
-  let code = $("customCode").value.trim().toUpperCase();
-  // якщо порожньо — генеруємо випадковий
+  const btn = $("btnCreate");
+  if (btn.disabled) return;
+
+  let code = ($("customCode").value || "").trim().toUpperCase();
+  code = code.replace(/[^A-Z0-9]/g, "").slice(0, 12);
   if (!code) {
     code = Math.random().toString(36).slice(2, 8).toUpperCase();
   }
-  // тільки букви/цифри
-  code = code.replace(/[^A-Z0-9]/g, "").slice(0, 12);
-  if (!code) return toast("Некоректний код");
+
+  btn.disabled = true;
+  btn.textContent = "Створення…";
 
   show("room");
   isHost = true;
@@ -151,21 +182,34 @@ $("btnCreate").onclick = async () => {
   $("messages").innerHTML = "";
   $("roomCode").textContent = code;
 
+  // QR одразу
   try {
-    peer = await createPeer(code);
-    $("status").textContent = "Очікуємо підключення…";
-
     QRCode.toCanvas($("qrCanvas"), code, {
       width: 180,
       margin: 1,
       color: { dark: "#000", light: "#fff" }
     });
+  } catch (_) {}
 
+  try {
+    if (peer) {
+      try { peer.destroy(); } catch (_) {}
+      peer = null;
+    }
+    peer = await createPeer(code);
+    $("status").textContent = "Очікуємо підключення…";
     peer.on("connection", (c) => setupConn(c));
+    toast("Кімната " + code + " готова");
   } catch (e) {
-    // якщо ID зайнятий (хтось вже створив з таким кодом)
-    $("status").textContent = "Помилка: код зайнятий або мережа. Спробуй інший код.";
-    toast("Код зайнятий — введи інший");
+    console.error(e);
+    const msg = (e && e.type === "unavailable-id")
+      ? "Код зайнятий. Введи інший."
+      : ("Помилка: " + (e.message || e.type || "невідома"));
+    $("status").textContent = msg;
+    toast(msg);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Створити кімнату";
   }
 };
 
@@ -190,11 +234,23 @@ async function join(code) {
   $("messages").innerHTML = "";
 
   try {
+    if (peer) {
+      try { peer.destroy(); } catch (_) {}
+      peer = null;
+    }
     peer = await createPeer();
     const c = peer.connect(code, { reliable: true });
     setupConn(c);
+
+    // якщо за 12 сек не відкрилось — показати помилку
+    setTimeout(() => {
+      if (!conn || !conn.open) {
+        $("status").textContent = "Не вдалося підключитися. Перевір код і що кімната відкрита.";
+      }
+    }, 12000);
   } catch (e) {
-    $("status").textContent = "Помилка: " + e.message;
+    $("status").textContent = "Помилка: " + (e.message || e);
+    toast("Не вдалося підключитися");
   }
 }
 
