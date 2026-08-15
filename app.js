@@ -63,10 +63,11 @@ function createPeer(id) {
   });
 }
 
-function addMessage(text, mine, fromHistory = false) {
+function addMessage(text, mine, fromHistory = false, msgId = null) {
   const box = $("messages");
   const div = document.createElement("div");
   div.className = "msg " + (mine ? "mine" : "theirs");
+  if (msgId) div.dataset.id = String(msgId);
 
   const meta = document.createElement("div");
   meta.className = "meta";
@@ -77,10 +78,13 @@ function addMessage(text, mine, fromHistory = false) {
   body.textContent = text;
   div.appendChild(body);
 
-  const btn = document.createElement("button");
-  btn.className = "btn secondary small";
-  btn.textContent = "Копіювати";
-  btn.onclick = async () => {
+  const actions = document.createElement("div");
+  actions.className = "msg-actions";
+
+  const btnCopy = document.createElement("button");
+  btnCopy.className = "btn secondary small";
+  btnCopy.textContent = "Копіювати";
+  btnCopy.onclick = async () => {
     try {
       await navigator.clipboard.writeText(text);
       toast("Скопійовано");
@@ -88,10 +92,77 @@ function addMessage(text, mine, fromHistory = false) {
       toast("Не вдалося скопіювати");
     }
   };
-  div.appendChild(btn);
+  actions.appendChild(btnCopy);
 
+  const btnDel = document.createElement("button");
+  btnDel.className = "btn danger small";
+  btnDel.textContent = "Видалити";
+  btnDel.onclick = () => deleteMessage(div, msgId, text);
+  actions.appendChild(btnDel);
+
+  div.appendChild(actions);
   box.appendChild(div);
   if (!fromHistory) box.scrollTop = box.scrollHeight;
+}
+
+async function deleteMessage(div, msgId, text) {
+  if (!confirm("Видалити це повідомлення?")) return;
+
+  // з екрану
+  div.remove();
+
+  // з бази
+  if (sb && msgId) {
+    try {
+      await sb.from("messages").delete().eq("id", msgId);
+    } catch (e) {
+      console.error(e);
+    }
+  } else if (sb && currentRoom && text) {
+    // якщо немає id — видаляємо за текстом + кімнатою (останнє таке)
+    try {
+      const { data } = await sb
+        .from("messages")
+        .select("id")
+        .eq("room_id", currentRoom)
+        .eq("text", text)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (data && data[0]) {
+        await sb.from("messages").delete().eq("id", data[0].id);
+        msgId = data[0].id;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // повідомити інший пристрій
+  if (conn && conn.open) {
+    conn.send({ type: "delete", id: msgId, text });
+  }
+
+  toast("Видалено");
+}
+
+function removeMessageFromUI(msgId, text) {
+  const box = $("messages");
+  const nodes = Array.from(box.children);
+  for (const el of nodes) {
+    if (msgId && el.dataset.id === String(msgId)) {
+      el.remove();
+      return;
+    }
+  }
+  // fallback по тексту
+  if (text) {
+    for (const el of nodes) {
+      if (el.textContent && el.textContent.includes(text)) {
+        el.remove();
+        return;
+      }
+    }
+  }
 }
 
 async function loadHistory(roomId) {
@@ -99,7 +170,7 @@ async function loadHistory(roomId) {
   try {
     const { data, error } = await sb
       .from("messages")
-      .select("text, sender, created_at")
+      .select("id, text, sender, created_at")
       .eq("room_id", roomId)
       .order("created_at", { ascending: true })
       .limit(200);
@@ -111,7 +182,7 @@ async function loadHistory(roomId) {
 
     $("messages").innerHTML = "";
     (data || []).forEach((m) => {
-      addMessage(m.text, m.sender === mySenderId, true);
+      addMessage(m.text, m.sender === mySenderId, true, m.id);
     });
     $("messages").scrollTop = $("messages").scrollHeight;
   } catch (e) {
@@ -120,16 +191,21 @@ async function loadHistory(roomId) {
 }
 
 async function saveMessage(roomId, text, sender) {
-  if (!sb) return;
+  if (!sb) return null;
   try {
-    const { error } = await sb.from("messages").insert({
-      room_id: roomId,
-      text,
-      sender
-    });
-    if (error) console.error("save error", error);
+    const { data, error } = await sb
+      .from("messages")
+      .insert({ room_id: roomId, text, sender })
+      .select("id")
+      .single();
+    if (error) {
+      console.error("save error", error);
+      return null;
+    }
+    return data && data.id;
   } catch (e) {
     console.error(e);
+    return null;
   }
 }
 
@@ -145,8 +221,11 @@ function setupConn(c) {
   });
 
   c.on("data", (data) => {
-    if (data && data.type === "text" && typeof data.text === "string") {
-      addMessage(data.text, false);
+    if (!data) return;
+    if (data.type === "text" && typeof data.text === "string") {
+      addMessage(data.text, false, false, data.id || null);
+    } else if (data.type === "delete") {
+      removeMessageFromUI(data.id, data.text);
     }
   });
 
@@ -318,14 +397,16 @@ async function sendText() {
   if (!text.trim()) return;
   if (!conn || !conn.open) return toast("Немає з’єднання");
 
-  conn.send({ type: "text", text });
-  addMessage(text, true);
   $("textInput").value = "";
   $("textInput").focus();
 
+  let msgId = null;
   if (currentRoom) {
-    await saveMessage(currentRoom, text, mySenderId);
+    msgId = await saveMessage(currentRoom, text, mySenderId);
   }
+
+  conn.send({ type: "text", text, id: msgId });
+  addMessage(text, true, false, msgId);
 }
 
 $("btnBack").onclick = () => {
