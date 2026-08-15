@@ -5,10 +5,10 @@ const $ = (id) => document.getElementById(id);
 const SUPABASE_URL = "https://kbxjvegqehfcnecjsfip.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtieGp2ZWdxZWhmY25lY2pzZmlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3MDMyMjcsImV4cCI6MjEwMjI3OTIyN30.2J5z10ZC0QXFw-C-53L7tvtpZl7YCxwW8ifjMW7msH8";
 
-let supabase = null;
+let sb = null;
 try {
-  if (window.supabase) {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+  if (window.supabase && window.supabase.createClient) {
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
   }
 } catch (e) {
   console.warn("Supabase init failed", e);
@@ -52,7 +52,7 @@ function createPeer(id) {
       reject(new Error("Таймаут підключення до сервера PeerJS"));
     }, 15000);
 
-    p.on("open", (pid) => {
+    p.on("open", () => {
       clearTimeout(timer);
       resolve(p);
     });
@@ -95,9 +95,9 @@ function addMessage(text, mine, fromHistory = false) {
 }
 
 async function loadHistory(roomId) {
-  if (!supabase) return;
+  if (!sb) return;
   try {
-    const { data, error } = await supabase
+    const { data, error } = await sb
       .from("messages")
       .select("text, sender, created_at")
       .eq("room_id", roomId)
@@ -120,9 +120,9 @@ async function loadHistory(roomId) {
 }
 
 async function saveMessage(roomId, text, sender) {
-  if (!supabase) return;
+  if (!sb) return;
   try {
-    const { error } = await supabase.from("messages").insert({
+    const { error } = await sb.from("messages").insert({
       room_id: roomId,
       text,
       sender
@@ -182,7 +182,6 @@ $("btnCreate").onclick = async () => {
   $("messages").innerHTML = "";
   $("roomCode").textContent = code;
 
-  // QR одразу
   try {
     QRCode.toCanvas($("qrCanvas"), code, {
       width: 180,
@@ -242,7 +241,6 @@ async function join(code) {
     const c = peer.connect(code, { reliable: true });
     setupConn(c);
 
-    // якщо за 12 сек не відкрилось — показати помилку
     setTimeout(() => {
       if (!conn || !conn.open) {
         $("status").textContent = "Не вдалося підключитися. Перевір код і що кімната відкрита.";
@@ -254,7 +252,6 @@ async function join(code) {
   }
 }
 
-// ---------- QR SCANNER ----------
 $("btnScanQR").onclick = startScan;
 $("btnStopScan").onclick = stopScan;
 
